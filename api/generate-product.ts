@@ -3,6 +3,41 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+async function getDynamicUnsplashImage(keyword: string): Promise<string | null> {
+  try {
+    const searchUrl = `https://unsplash.com/s/photos/${encodeURIComponent(keyword)}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    
+    const response = await fetch(searchUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+      },
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      const html = await response.text();
+      // Match image URLs on Unsplash CDN
+      const regex = /https:\/\/images\.unsplash\.com\/photo-[a-zA-Z0-9_\-]+/g;
+      const matches = html.match(regex);
+      if (matches && matches.length > 0) {
+        const uniqueMatches = Array.from(new Set(matches));
+        for (const imgUrl of uniqueMatches) {
+          if (imgUrl.length > 50 && !imgUrl.includes("profile") && !imgUrl.includes("placeholder")) {
+            return `${imgUrl}?w=600&auto=format&fit=crop&q=80`;
+          }
+        }
+        return `${uniqueMatches[0]}?w=600&auto=format&fit=crop&q=80`;
+      }
+    }
+  } catch (err) {
+    console.log("Failed to fetch dynamic Unsplash image:", err);
+  }
+  return null;
+}
+
 export default async function handler(req: any, res: any) {
   // Set CORS and headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -231,7 +266,7 @@ Requisitos do anúncio:
 5. "category": Atribua a uma categoria adequada. ${categoriesPrompt}
 6. "discountCode": Invente um código de cupom curto de alta conversão (ex: "ACHADO20", "SHOPEE80", "CASA15").
 7. "link": Retorne o link de afiliado oficial do produto. Use exatamente o URL original fornecido "${url || "https://shopee.com.br"}".
-8. "keywordImage": Sugira apenas uma palavra-chave em inglês para buscar uma foto profissional no Unsplash relacionada ao produto. Exemplos: "smartwatch", "airfryer", "humidifier", "makeupbox", "thermosbottle", "bluetoothheadphones".
+8. "keywordImage": Sugira de 1 a 3 termos de busca em inglês específicos (ex: "stanley water bottle", "neon rgb led strip", "wireless charger stand", "makeup organizer", "bluetooth portable speaker") que descrevam perfeitamente o produto para buscarmos uma foto profissional dele no Unsplash. Evite termos genéricos ou abstratos.
 
 Forneça a saída estritamente em formato JSON válido que respeite o esquema abaixo.`,
       config: {
@@ -322,32 +357,40 @@ Forneça a saída estritamente em formato JSON válido que respeite o esquema ab
       imagesList = scrapedImages;
       primaryImage = scrapedImages[0];
     } else {
-      // Flexible matching for keywords
-      let fallbackList: string[] | undefined = undefined;
-      if (imageMap[kw]) {
-        fallbackList = imageMap[kw];
+      // Try to fetch a high quality matched image dynamically from Unsplash!
+      const dynamicImg = await getDynamicUnsplashImage(kw);
+      if (dynamicImg) {
+        primaryImage = dynamicImg;
+        imagesList = [dynamicImg];
+        console.log(`Found dynamic image for "${kw}":`, dynamicImg);
       } else {
-        // Look for any key that is a substring of the generated keyword, or vice-versa
-        for (const key of Object.keys(imageMap)) {
-          if (kw.includes(key) || key.includes(kw)) {
-            fallbackList = imageMap[key];
-            break;
+        // Flexible matching for keywords static fallback
+        let fallbackList: string[] | undefined = undefined;
+        if (imageMap[kw]) {
+          fallbackList = imageMap[kw];
+        } else {
+          // Look for any key that is a substring of the generated keyword, or vice-versa
+          for (const key of Object.keys(imageMap)) {
+            if (kw.includes(key) || key.includes(kw)) {
+              fallbackList = imageMap[key];
+              break;
+            }
           }
         }
-      }
 
-      if (fallbackList && fallbackList.length > 0) {
-        imagesList = fallbackList;
-        primaryImage = fallbackList[0];
-      } else {
-        // High quality general product/shopping defaults instead of a watch!
-        const fallbacks = [
-          "https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=600&auto=format&fit=crop&q=80", // Golden premium shopping bags
-          "https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=600&auto=format&fit=crop&q=80", // Creative storefront
-          "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=600&auto=format&fit=crop&q=80"  // Elegant packaging close-up
-        ];
-        imagesList = fallbacks;
-        primaryImage = fallbacks[0];
+        if (fallbackList && fallbackList.length > 0) {
+          imagesList = fallbackList;
+          primaryImage = fallbackList[0];
+        } else {
+          // High quality general product/shopping defaults instead of a watch!
+          const fallbacks = [
+            "https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=600&auto=format&fit=crop&q=80", // Golden premium shopping bags
+            "https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=600&auto=format&fit=crop&q=80", // Creative storefront
+            "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=600&auto=format&fit=crop&q=80"  // Elegant packaging close-up
+          ];
+          imagesList = fallbacks;
+          primaryImage = fallbacks[0];
+        }
       }
     }
 
