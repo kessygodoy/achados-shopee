@@ -589,10 +589,10 @@ export default function AdminPanel({
                   />
                 </div>
 
-                {/* Image URL */}
+                {/* Image URL & Upload */}
                 <div>
                   <div className="flex justify-between items-center mb-1">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Endereço da Imagem Principal (URL)</label>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Endereço da Imagem Principal (URL ou Local)</label>
                     <button
                       type="button"
                       onClick={() => setImage("https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=600&auto=format&fit=crop")}
@@ -601,13 +601,49 @@ export default function AdminPanel({
                       Inserir Imagem Padrão
                     </button>
                   </div>
-                  <input
-                    type="url"
-                    value={image}
-                    onChange={(e) => setImage(e.target.value)}
-                    placeholder="https://endereçodaimagem.com/foto.jpg"
-                    className="w-full bg-slate-50 border border-slate-250 focus:border-orange-500 focus:bg-white focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 font-mono font-semibold"
-                  />
+                  
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={image}
+                      onChange={(e) => setImage(e.target.value)}
+                      placeholder="https://endereçodaimagem.com/foto.jpg ou imagem carregada"
+                      className="w-full bg-slate-50 border border-slate-250 focus:border-orange-500 focus:bg-white focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 font-mono font-semibold"
+                    />
+                    
+                    <div className="flex items-center gap-2">
+                      <label className="flex-1 flex items-center justify-center gap-2 bg-orange-50 hover:bg-orange-100 border border-dashed border-orange-200 text-orange-700 rounded-xl py-2.5 px-4 text-xs font-bold cursor-pointer transition-colors shadow-xs">
+                        <Upload className="w-4 h-4 text-orange-600" />
+                        <span>Fazer Upload de Foto do Dispositivo</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = (event) => {
+                                if (event.target?.result && typeof event.target.result === "string") {
+                                  setImage(event.target.result);
+                                }
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                        />
+                      </label>
+                      {image.startsWith("data:") && (
+                        <button
+                          type="button"
+                          onClick={() => setImage("")}
+                          className="px-3.5 py-2.5 bg-white border border-slate-250 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                        >
+                          Limpar
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Carousel Images Area */}

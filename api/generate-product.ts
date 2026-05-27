@@ -92,26 +92,52 @@ export default async function handler(req: any, res: any) {
         // Expand short links if needed (like shope.ee, shp.ee, or redirect routes)
         if (url.includes("shope.ee") || url.includes("shp.ee") || url.includes("shopee.com.br/m/") || url.includes("shopee.com.br/collabs/")) {
           try {
+            // Attempt to expand via manual redirect to capture Location headers easily
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 4000);
             const redirectRes = await fetch(url, {
               method: "GET",
-              redirect: "follow",
+              redirect: "manual",
               headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
               },
               signal: controller.signal
             });
             clearTimeout(timeoutId);
-            finalUrl = redirectRes.url;
+            
+            const locHeader = redirectRes.headers.get("location");
+            if (locHeader) {
+              finalUrl = locHeader;
+              console.log("Expanded URL via location header:", finalUrl);
+            } else if (redirectRes.url) {
+              finalUrl = redirectRes.url;
+            }
           } catch (expandErr) {
-            console.log("Error expanding Shopee short link:", expandErr);
+            console.log("First short link expansion failed, trying automatic follow:", expandErr);
+            try {
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 4000);
+              const redirectRes = await fetch(url, {
+                method: "GET",
+                redirect: "follow",
+                headers: {
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+                },
+                signal: controller.signal
+              });
+              clearTimeout(timeoutId);
+              finalUrl = redirectRes.url;
+            } catch (err2) {
+              console.log("Automatic follow expansion failed:", err2);
+            }
           }
         }
 
         // Try to extract Shopee IDs from the expanded URL
         const shopeeRegex1 = /i\.(\d+)\.(\d+)/i;
         const shopeeRegex2 = /\/product\/(\d+)\/(\d+)/i;
+        const shopeeRegex3 = /product-i\.(\d+)\.(\d+)/i;
         
         let shopId = "";
         let itemId = "";
@@ -125,12 +151,29 @@ export default async function handler(req: any, res: any) {
           if (match) {
             shopId = match[1];
             itemId = match[2];
+          } else {
+            match = finalUrl.match(shopeeRegex3);
+            if (match) {
+              shopId = match[1];
+              itemId = match[2];
+            } else {
+              try {
+                const urlObj = new URL(finalUrl);
+                const sId = urlObj.searchParams.get("shopid") || urlObj.searchParams.get("shopId");
+                const iId = urlObj.searchParams.get("itemid") || urlObj.searchParams.get("itemId");
+                if (sId && iId) {
+                  shopId = sId;
+                  itemId = iId;
+                }
+              } catch (_) {}
+            }
           }
         }
 
         let apiSuccess = false;
 
         if (shopId && itemId) {
+          // Attempt 1: Shopee Public API v4
           try {
             const shopeeApiUrl = `https://shopee.com.br/api/v4/item/get?itemid=${itemId}&shopid=${shopId}`;
             const controller = new AbortController();
@@ -140,11 +183,11 @@ export default async function handler(req: any, res: any) {
               headers: {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
                 "Accept": "application/json",
-                "Referer": finalUrl
+                "Referer": finalUrl,
+                "X-Requested-With": "XMLHttpRequest"
               },
               signal: controller.signal
             });
-            
             clearTimeout(timeoutId);
 
             if (apiRes.ok) {
@@ -154,7 +197,6 @@ export default async function handler(req: any, res: any) {
                 scrapedTitle = itemData.name || itemData.title || "";
                 scrapedContent = itemData.description || "";
                 
-                // Parse Price. Shopee represents 49.90 as 4990000 (divided by 100000)
                 if (itemData.price !== undefined && itemData.price !== null) {
                   scrapedPrice = itemData.price / 100000;
                 }
@@ -166,11 +208,52 @@ export default async function handler(req: any, res: any) {
                 }
                 
                 apiSuccess = scrapedImages.length > 0;
-                console.log("Successfully fetched Shopee product data from public API! Images count:", scrapedImages.length);
+                console.log("Successfully fetched Shopee product data from API v4! Images:", scrapedImages.length);
               }
             }
           } catch (apiErr) {
-            console.log("Shopee public item API request bypassed or failed:", apiErr);
+            console.log("Shopee public item API v4 request failed:", apiErr);
+          }
+
+          // Attempt 2: If API v4 failed, try legacy API v2 which sometimes bypasses blocks
+          if (!apiSuccess) {
+            try {
+              const shopeeApiV2Url = `https://shopee.com.br/api/v2/item/get_v2?item_id=${itemId}&shop_id=${shopId}`;
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 4000);
+              
+              const apiResV2 = await fetch(shopeeApiV2Url, {
+                headers: {
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+                  "Accept": "application/json",
+                  "Referer": finalUrl
+                },
+                signal: controller.signal
+              });
+              clearTimeout(timeoutId);
+
+              if (apiResV2.ok) {
+                const apiJsonV2 = await apiResV2.json();
+                const itemData = apiJsonV2.data || apiJsonV2.item;
+                if (itemData) {
+                  scrapedTitle = scrapedTitle || itemData.name || itemData.title || "";
+                  scrapedContent = scrapedContent || itemData.description || "";
+                  
+                  if (itemData.price !== undefined && itemData.price !== null && scrapedPrice === null) {
+                    scrapedPrice = itemData.price / 100000;
+                  }
+                  
+                  if (itemData.images && itemData.images.length > 0) {
+                    scrapedImages = itemData.images.map((imgId: string) => `https://down-br-img.susercontent.com/file/${imgId}`);
+                  }
+                  
+                  apiSuccess = scrapedImages.length > 0;
+                  console.log("Successfully fetched Shopee product data from API v2 fallback!");
+                }
+              }
+            } catch (v2Err) {
+              console.log("Shopee API v2 fallback failed:", v2Err);
+            }
           }
         }
 
@@ -181,7 +264,8 @@ export default async function handler(req: any, res: any) {
           
           const fetchRes = await fetch(finalUrl, {
             headers: {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
             },
             signal: controller.signal
           });
@@ -222,6 +306,18 @@ export default async function handler(req: any, res: any) {
             let mCdn;
             while ((mCdn = cdnRegex.exec(html)) !== null) {
               rawImages.push(mCdn[1]);
+            }
+
+            // ADVANCED SCANNER: Find any 32-character lowercase hex string wrapped in quotes typical of Shopee images
+            const hashMatches = html.match(/"[a-f0-9]{32}"/gi);
+            if (hashMatches) {
+              for (const hit of hashMatches) {
+                const cleanedHash = hit.substring(1, hit.length - 1);
+                // Exclude common known platform/tracking hashes
+                if (!["76ec8319f36f6d8995f782c5f1df7ef1", "f7cb8594b9cdb4802e3b2e5658bad1fa"].includes(cleanedHash)) {
+                  rawImages.push(`https://down-br-img.susercontent.com/file/${cleanedHash}`);
+                }
+              }
             }
 
             const filtered = rawImages.filter(img => {
