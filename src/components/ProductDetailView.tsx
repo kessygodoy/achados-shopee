@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { Product } from "../types";
 import { 
   ArrowLeft, ShoppingBag, Copy, Check, MessageCircle, Send, 
-  Clock, Heart, Star, Share2, ShieldAlert, BadgePercent, ArrowRight
+  Clock, Heart, Star, Share2, ShieldAlert, BadgePercent, ArrowRight,
+  ChevronLeft, ChevronRight
 } from "lucide-react";
 
 interface ProductDetailViewProps {
@@ -23,6 +24,14 @@ export default function ProductDetailView({
   const [copied, setCopied] = useState(false);
   const [countdown, setCountdown] = useState({ hours: 2, minutes: 45, seconds: 30 });
   const [favorite, setFavorite] = useState(false);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+
+  const imageList = product.images && product.images.length > 0 ? product.images : [product.image];
+
+  // Reset image array cursor on product transition
+  useEffect(() => {
+    setActiveImageIndex(0);
+  }, [product.id]);
 
   // Set up an active countdown timer for conversion psychological trigger
   useEffect(() => {
@@ -105,17 +114,44 @@ export default function ProductDetailView({
           
           {/* Left Column: Image Area */}
           <div className="lg:col-span-5">
-            <div className="relative rounded-2xl overflow-hidden bg-slate-50 border border-slate-100 shadow-xs group">
+            {/* Main Image Viewport */}
+            <div className="relative rounded-2xl overflow-hidden bg-slate-50 border border-slate-100 shadow-xs group aspect-square">
               <img
-                src={product.image}
-                alt={product.title}
+                src={imageList[activeImageIndex]}
+                alt={`${product.title} - imagem ${activeImageIndex + 1}`}
                 referrerPolicy="no-referrer"
-                className="w-full aspect-square object-cover group-hover:scale-[1.03] transition-transform duration-500"
+                className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500"
               />
+
+              {/* Prev / Next Buttons */}
+              {imageList.length > 1 && (
+                <>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveImageIndex((prev) => (prev === 0 ? imageList.length - 1 : prev - 1));
+                    }}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center bg-white/80 hover:bg-white text-slate-800 rounded-full shadow-md transition-all opacity-0 group-hover:opacity-100 backdrop-blur-xs cursor-pointer focus:outline-none"
+                    title="Anterior"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveImageIndex((prev) => (prev === imageList.length - 1 ? 0 : prev + 1));
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center bg-white/80 hover:bg-white text-slate-800 rounded-full shadow-md transition-all opacity-0 group-hover:opacity-100 backdrop-blur-xs cursor-pointer focus:outline-none"
+                    title="Próxima"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                </>
+              )}
 
               {/* Badges on Image */}
               {discountPercentage > 0 && (
-                <div className="absolute top-4 left-4 bg-red-500 text-white text-xs font-black px-3.5 py-1.5 rounded-xl shadow-md uppercase tracking-wider">
+                <div className="absolute top-4 left-4 bg-red-500 text-white text-xs font-black px-3.5 py-1.5 rounded-xl shadow-md uppercase tracking-wider select-none pointer-events-none">
                   -{discountPercentage}% Economia
                 </div>
               )}
@@ -124,12 +160,54 @@ export default function ProductDetailView({
                 <button
                   id="btn-favorite"
                   onClick={() => setFavorite(!favorite)}
-                  className="bg-white/90 backdrop-blur-md hover:bg-white text-slate-700 hover:text-rose-500 p-2.5 rounded-full shadow-md transition-colors"
+                  className="bg-white/90 backdrop-blur-md hover:bg-white text-slate-700 hover:text-rose-500 p-2.5 rounded-full shadow-md transition-colors cursor-pointer"
                 >
                   <Heart className={`w-5 h-5 ${favorite ? "fill-current text-rose-500" : ""}`} />
                 </button>
               </div>
+
+              {/* Image Indicators Map Dots */}
+              {imageList.length > 1 && (
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 bg-slate-900/40 backdrop-blur-xs py-1 px-2.5 rounded-full z-10 select-none">
+                  {imageList.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveImageIndex(idx);
+                      }}
+                      className={`w-1.5 h-1.5 rounded-full transition-all cursor-pointer ${
+                        idx === activeImageIndex ? "bg-white scale-125" : "bg-white/50"
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
+
+            {/* Thumbnail Carousel Rows Strip */}
+            {imageList.length > 1 && (
+              <div className="mt-3.5 flex gap-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-slate-200">
+                {imageList.map((img, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setActiveImageIndex(idx)}
+                    className={`w-16 h-16 rounded-xl overflow-hidden border-2 bg-slate-50 transition-all shrink-0 cursor-pointer ${
+                      idx === activeImageIndex 
+                        ? "border-orange-500 shadow-sm opacity-100 ring-2 ring-orange-100" 
+                        : "border-slate-100 opacity-60 hover:opacity-100 hover:border-slate-300"
+                    }`}
+                  >
+                    <img
+                      src={img}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Shopee Security Guarantee */}
             <div className="mt-5 p-4 rounded-xl bg-orange-50/50 border border-orange-100 flex gap-3 text-xs text-orange-850">

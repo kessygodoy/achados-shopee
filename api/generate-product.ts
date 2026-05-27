@@ -1,13 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import dotenv from "dotenv";
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
-  }
-});
+dotenv.config();
 
 export default async function handler(req: any, res: any) {
   // Set CORS and headers
@@ -28,6 +22,23 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: "Método não permitido. Use POST." });
   }
 
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return res.status(403).json({
+      error: "A chave API do Gemini (GEMINI_API_KEY) não está configurada no ambiente do Vercel. Por favor, adicione a chave 'GEMINI_API_KEY' com o valor fornecido nas configurações (Environment Variables) do seu projeto no painel da Vercel e faça um novo Deploy."
+    });
+  }
+
+  // Initialize Gemini Client
+  const ai = new GoogleGenAI({
+    apiKey: apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      }
+    }
+  });
+
   try {
     const { url, rawText, categories } = req.body;
 
@@ -37,6 +48,7 @@ export default async function handler(req: any, res: any) {
 
     let scrapedTitle = "";
     let scrapedContent = "";
+    let scrapedImages: string[] = [];
 
     if (url) {
       try {
@@ -64,9 +76,34 @@ export default async function handler(req: any, res: any) {
           if (metaMatch && metaMatch[1]) {
             scrapedContent = metaMatch[1].trim();
           }
+
+          // Fetch Shopee structures & cdn images directly
+          const cdnRegex = /(https?:\/\/(?:[a-zA-Z0-9-]+\.)*(?:susercontent|shopee)\.[a-z0-9.]+\/file\/[a-zA-Z0-9_\-]+)/gi;
+          const ogImageRegex = /<meta\s+(?:property|name)=["'](?:og:image|twitter:image)["']\s+content=["']([^"']+)["']/gi;
+          
+          const rawImages: string[] = [];
+
+          let mOg;
+          while ((mOg = ogImageRegex.exec(html)) !== null) {
+            if (mOg[1] && mOg[1].startsWith("http")) {
+              rawImages.push(mOg[1]);
+            }
+          }
+
+          let mCdn;
+          while ((mCdn = cdnRegex.exec(html)) !== null) {
+            rawImages.push(mCdn[1]);
+          }
+
+          const filtered = rawImages.filter(img => {
+            const low = img.toLowerCase();
+            return !low.includes("icon") && !low.includes("logo") && !low.includes("pixel") && !low.includes("sprite") && !low.includes("loading") && !low.includes("avatar");
+          });
+
+          scrapedImages = Array.from(new Set(filtered)).slice(0, 8);
         }
       } catch (err) {
-        console.log("Scraping URL fetch skipped or failed under serverless environment.");
+        console.log("Scraping URL fetch skipped or failed under serverless environment.", err);
       }
     }
 
@@ -123,25 +160,85 @@ Forneça a saída estritamente em formato JSON válido que respeite o esquema ab
     const resultText = geminiResponse.text?.trim() || "{}";
     const parsedData = JSON.parse(resultText);
 
-    const imageMap: Record<string, string> = {
-      "smartwatch": "https://images.unsplash.com/photo-1542496658-e33a6d0d50f6?w=600&auto=format&fit=crop&q=80",
-      "airfryer": "https://images.unsplash.com/photo-1621972750749-0fbb1abb7736?w=600&auto=format&fit=crop&q=80",
-      "humidifier": "https://images.unsplash.com/photo-1519183071298-a2962feb14f4?w=600&auto=format&fit=crop&q=80",
-      "makeupbox": "https://images.unsplash.com/photo-1612817288484-6f916006741a?w=600&auto=format&fit=crop&q=80",
-      "thermosbottle": "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=600&auto=format&fit=crop&q=80",
-      "bluetoothheadphones": "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&auto=format&fit=crop&q=80",
-      "kitchen": "https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=600&auto=format&fit=crop&q=80",
-      "home": "https://images.unsplash.com/photo-1513694203232-719a280e022f?w=600&auto=format&fit=crop&q=80",
-      "cosmetics": "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=600&auto=format&fit=crop&q=80",
-      "tech": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=600&auto=format&fit=crop&q=80",
-      "gadget": "https://images.unsplash.com/photo-1525547719571-a2d4ac8945e2?w=600&auto=format&fit=crop&q=80"
+    const imageMap: Record<string, string[]> = {
+      "smartwatch": [
+        "https://images.unsplash.com/photo-1542496658-e33a6d0d50f6?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1508685096489-7aacd43bd3b1?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1579586337278-3befd40fd17a?w=600&auto=format&fit=crop&q=80"
+      ],
+      "airfryer": [
+        "https://images.unsplash.com/photo-1621972750749-0fbb1abb7736?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1584269600464-37b1b58a9fe7?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1628113315911-840847b352e6?w=600&auto=format&fit=crop&q=80"
+      ],
+      "humidifier": [
+        "https://images.unsplash.com/photo-1519183071298-a2962feb14f4?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1601049541289-9b1b7bbbfe19?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1585771724684-38269d6639fd?w=600&auto=format&fit=crop&q=80"
+      ],
+      "makeupbox": [
+        "https://images.unsplash.com/photo-1612817288484-6f916006741a?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1522337360788-8b13edd793be?w=600&auto=format&fit=crop&q=80"
+      ],
+      "thermosbottle": [
+        "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1592080016724-490f3532ab7f?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1618354691373-d851c5c3a990?w=600&auto=format&fit=crop&q=80"
+      ],
+      "bluetoothheadphones": [
+        "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1484704849700-f032a568e944?w=600&auto=format&fit=crop&q=80"
+      ],
+      "kitchen": [
+        "https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1527018601619-a508a2be00cd?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=600&auto=format&fit=crop&q=80"
+      ],
+      "home": [
+        "https://images.unsplash.com/photo-1513694203232-719a280e022f?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1484154218962-a197022b5858?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1505691938895-1758d7feb511?w=600&auto=format&fit=crop&q=80"
+      ],
+      "cosmetics": [
+        "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1512496015851-a90fb38ba796?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1515688594390-b649af70d282?w=600&auto=format&fit=crop&q=80"
+      ],
+      "tech": [
+        "https://images.unsplash.com/photo-1518770660439-4636190af475?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1504274066654-faaf72c56b16?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1468495244123-6c6c332eeece?w=600&auto=format&fit=crop&q=80"
+      ],
+      "gadget": [
+        "https://images.unsplash.com/photo-1525547719571-a2d4ac8945e2?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=600&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1531297484001-80022131f5a1?w=600&auto=format&fit=crop&q=80"
+      ]
     };
 
     const kw = (parsedData.keywordImage || "tech").toLowerCase().trim();
-    let selectedImageUrl = imageMap[kw];
+    let imagesList: string[] = [];
+    let primaryImage = "";
 
-    if (!selectedImageUrl) {
-      selectedImageUrl = `https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80`;
+    if (scrapedImages && scrapedImages.length > 0) {
+      imagesList = scrapedImages;
+      primaryImage = scrapedImages[0];
+    } else {
+      const fallbackList = imageMap[kw];
+      if (fallbackList && fallbackList.length > 0) {
+        imagesList = fallbackList;
+        primaryImage = fallbackList[0];
+      } else {
+        const fallbacks = [
+          "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80",
+          "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=600&auto=format&fit=crop&q=80",
+          "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&auto=format&fit=crop&q=80"
+        ];
+        imagesList = fallbacks;
+        primaryImage = fallbacks[0];
+      }
     }
 
     const payload = {
@@ -152,7 +249,8 @@ Forneça a saída estritamente em formato JSON válido que respeite o esquema ab
       category: parsedData.category,
       discountCode: parsedData.discountCode,
       link: parsedData.link,
-      image: selectedImageUrl
+      image: primaryImage,
+      images: imagesList
     };
 
     return res.status(200).json(payload);

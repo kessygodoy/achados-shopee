@@ -14,6 +14,7 @@ export interface Product {
   isAvailable: boolean;
   discountCode?: string;
   dateAdded: string;
+  images?: string[];
 }
 
 export interface AppSettings {

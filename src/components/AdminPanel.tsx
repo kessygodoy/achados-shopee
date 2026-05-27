@@ -67,6 +67,7 @@ export default function AdminPanel({
   const [discountCode, setDiscountCode] = useState("");
   const [isFeatured, setIsFeatured] = useState(false);
   const [isAvailable, setIsAvailable] = useState(true);
+  const [imagesText, setImagesText] = useState("");
 
   // AI Auto-Generator States
   const [aiUrl, setAiUrl] = useState("");
@@ -104,6 +105,13 @@ export default function AdminPanel({
       setOriginalPrice(data.originalPrice ? data.originalPrice.toString() : "");
       if (data.link) setLink(data.link);
       if (data.image) setImage(data.image);
+      if (data.images && data.images.length > 0) {
+        setImagesText(data.images.join("\n"));
+      } else if (data.image) {
+        setImagesText(data.image);
+      } else {
+        setImagesText("");
+      }
       if (data.category) setCategory(data.category);
       if (data.discountCode) setDiscountCode(data.discountCode);
       setGenerateSuccess("Anúncio gerado com sucesso por IA usando o Gemini! Revise os detalhes preenchidos abaixo.");
@@ -166,6 +174,7 @@ export default function AdminPanel({
     setTitle("");
     setDescription("");
     setImage("");
+    setImagesText("");
     setPrice("");
     setOriginalPrice("");
     setLink("");
@@ -183,6 +192,11 @@ export default function AdminPanel({
     setTitle(prod.title);
     setDescription(prod.description);
     setImage(prod.image);
+    if (prod.images && prod.images.length > 0) {
+      setImagesText(prod.images.join("\n"));
+    } else {
+      setImagesText(prod.image ? prod.image : "");
+    }
     setPrice(prod.price.toString());
     setOriginalPrice(prod.originalPrice.toString());
     setLink(prod.link);
@@ -203,11 +217,22 @@ export default function AdminPanel({
     const parsedPrice = parseFloat(price) || 0;
     const parsedOriginalPrice = parseFloat(originalPrice) || parsedPrice;
 
+    // Parse list of image URLs from text box
+    const parsedUrls = imagesText
+      .split(/[\n,]/)
+      .map(img => img.trim())
+      .filter(img => img.startsWith("http"));
+    
+    // Choose primary image as the first URL, fallback to image input, then default
+    const primaryImg = parsedUrls[0] || image.trim() || "https://images.unsplash.com/photo-1542496658-e33a6d0d50f6?w=600&auto=format&fit=crop";
+    const finalUrls = parsedUrls.length > 0 ? parsedUrls : [primaryImg];
+
     const updatedProduct: Product = {
       id: currentId || `prod-${Date.now()}`,
       title,
       description,
-      image: image.trim() || "https://images.unsplash.com/photo-1542496658-e33a6d0d50f6?w=600&auto=format&fit=crop",
+      image: primaryImg,
+      images: finalUrls,
       price: parsedPrice,
       originalPrice: parsedOriginalPrice,
       link: link.trim() || "https://shopee.com.br",
@@ -567,7 +592,7 @@ export default function AdminPanel({
                 {/* Image URL */}
                 <div>
                   <div className="flex justify-between items-center mb-1">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Endereço da Imagem (URL)</label>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Endereço da Imagem Principal (URL)</label>
                     <button
                       type="button"
                       onClick={() => setImage("https://images.unsplash.com/photo-1542496658-e33a6d0d50f6?w=600&auto=format&fit=crop")}
@@ -583,8 +608,22 @@ export default function AdminPanel({
                     placeholder="https://endereçodaimagem.com/foto.jpg"
                     className="w-full bg-slate-50 border border-slate-250 focus:border-orange-500 focus:bg-white focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 font-mono font-semibold"
                   />
+                </div>
+
+                {/* Carousel Images Area */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Lista de Imagens do Carrossel (URLs - Uma por Linha)</label>
+                  </div>
+                  <textarea
+                    rows={4}
+                    value={imagesText}
+                    onChange={(e) => setImagesText(e.target.value)}
+                    placeholder="Cole as URLs de várias imagens do produto (uma por linha)"
+                    className="w-full bg-slate-50 border border-slate-250 focus:border-orange-500 focus:bg-white focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 font-mono font-semibold leading-relaxed"
+                  />
                   <p className="text-[10px] text-slate-400 mt-1 font-medium">
-                    🔍 Dica: Você pode copiar o endereço das imagens dos produtos no próprio site da Shopee ou do Google Imagens e colar aqui!
+                    🤖 O gerador automático de IA busca e preenche estas URLs da Shopee automaticamente se você usar o link. Caso queira, você pode adicionar ou remover URLs manualmente aqui (uma por linha).
                   </p>
                 </div>
 
