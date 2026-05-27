@@ -1,0 +1,6 @@
+{
+  "name": "Blog de Afiliado Shopee",
+  "description": "Blog para divulgação de produtos e links de afiliados da Shopee com páginas de detalhes, recomendações e painel administrativo local.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
