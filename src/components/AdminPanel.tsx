@@ -224,7 +224,7 @@ export default function AdminPanel({
       .filter(img => img.startsWith("http"));
     
     // Choose primary image as the first URL, fallback to image input, then default
-    const primaryImg = parsedUrls[0] || image.trim() || "https://images.unsplash.com/photo-1542496658-e33a6d0d50f6?w=600&auto=format&fit=crop";
+    const primaryImg = parsedUrls[0] || image.trim() || "https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=600&auto=format&fit=crop";
     const finalUrls = parsedUrls.length > 0 ? parsedUrls : [primaryImg];
 
     const updatedProduct: Product = {
@@ -595,7 +595,7 @@ export default function AdminPanel({
                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Endereço da Imagem Principal (URL)</label>
                     <button
                       type="button"
-                      onClick={() => setImage("https://images.unsplash.com/photo-1542496658-e33a6d0d50f6?w=600&auto=format&fit=crop")}
+                      onClick={() => setImage("https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=600&auto=format&fit=crop")}
                       className="text-[10px] text-orange-600 font-bold hover:underline"
                     >
                       Inserir Imagem Padrão

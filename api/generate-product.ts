@@ -48,59 +48,154 @@ export default async function handler(req: any, res: any) {
 
     let scrapedTitle = "";
     let scrapedContent = "";
+    let scrapedPrice: number | null = null;
     let scrapedImages: string[] = [];
 
     if (url) {
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
-        
-        const fetchRes = await fetch(url, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
-          },
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-
-        if (fetchRes.ok) {
-          const html = await fetchRes.text();
-          const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-          if (titleMatch && titleMatch[1]) {
-            scrapedTitle = titleMatch[1].trim();
+        let finalUrl = url;
+        // Expand short links if needed (like shope.ee, shp.ee, or redirect routes)
+        if (url.includes("shope.ee") || url.includes("shp.ee") || url.includes("shopee.com.br/m/") || url.includes("shopee.com.br/collabs/")) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 4000);
+            const redirectRes = await fetch(url, {
+              method: "GET",
+              redirect: "follow",
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+              },
+              signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            finalUrl = redirectRes.url;
+          } catch (expandErr) {
+            console.log("Error expanding Shopee short link:", expandErr);
           }
+        }
 
-          const metaMatch = html.match(/<meta\s+name=["']description["']\s+content=["']([\s\S]*?)["']/i) ||
-                            html.match(/<meta\s+property=["']og:description["']\s+content=["']([\s\S]*?)["']/i);
-          if (metaMatch && metaMatch[1]) {
-            scrapedContent = metaMatch[1].trim();
+        // Try to extract Shopee IDs from the expanded URL
+        const shopeeRegex1 = /i\.(\d+)\.(\d+)/i;
+        const shopeeRegex2 = /\/product\/(\d+)\/(\d+)/i;
+        
+        let shopId = "";
+        let itemId = "";
+        
+        let match = finalUrl.match(shopeeRegex1);
+        if (match) {
+          shopId = match[1];
+          itemId = match[2];
+        } else {
+          match = finalUrl.match(shopeeRegex2);
+          if (match) {
+            shopId = match[1];
+            itemId = match[2];
           }
+        }
 
-          // Fetch Shopee structures & cdn images directly
-          const cdnRegex = /(https?:\/\/(?:[a-zA-Z0-9-]+\.)*(?:susercontent|shopee)\.[a-z0-9.]+\/file\/[a-zA-Z0-9_\-]+)/gi;
-          const ogImageRegex = /<meta\s+(?:property|name)=["'](?:og:image|twitter:image)["']\s+content=["']([^"']+)["']/gi;
-          
-          const rawImages: string[] = [];
+        let apiSuccess = false;
 
-          let mOg;
-          while ((mOg = ogImageRegex.exec(html)) !== null) {
-            if (mOg[1] && mOg[1].startsWith("http")) {
-              rawImages.push(mOg[1]);
+        if (shopId && itemId) {
+          try {
+            const shopeeApiUrl = `https://shopee.com.br/api/v4/item/get?itemid=${itemId}&shopid=${shopId}`;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 4000);
+            
+            const apiRes = await fetch(shopeeApiUrl, {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+                "Accept": "application/json",
+                "Referer": finalUrl
+              },
+              signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+
+            if (apiRes.ok) {
+              const apiJson = await apiRes.json();
+              const itemData = apiJson.data || apiJson.item;
+              if (itemData) {
+                scrapedTitle = itemData.name || itemData.title || "";
+                scrapedContent = itemData.description || "";
+                
+                // Parse Price. Shopee represents 49.90 as 4990000 (divided by 100000)
+                if (itemData.price !== undefined && itemData.price !== null) {
+                  scrapedPrice = itemData.price / 100000;
+                }
+                
+                if (itemData.images && itemData.images.length > 0) {
+                  scrapedImages = itemData.images.map((imgId: string) => `https://down-br-img.susercontent.com/file/${imgId}`);
+                } else if (itemData.image) {
+                  scrapedImages = [`https://down-br-img.susercontent.com/file/${itemData.image}`];
+                }
+                
+                apiSuccess = scrapedImages.length > 0;
+                console.log("Successfully fetched Shopee product data from public API! Images count:", scrapedImages.length);
+              }
             }
+          } catch (apiErr) {
+            console.log("Shopee public item API request bypassed or failed:", apiErr);
           }
+        }
 
-          let mCdn;
-          while ((mCdn = cdnRegex.exec(html)) !== null) {
-            rawImages.push(mCdn[1]);
-          }
-
-          const filtered = rawImages.filter(img => {
-            const low = img.toLowerCase();
-            return !low.includes("icon") && !low.includes("logo") && !low.includes("pixel") && !low.includes("sprite") && !low.includes("loading") && !low.includes("avatar");
+        // Fallback to HTML scraping if API failed or wasn't a standard item URL
+        if (!apiSuccess) {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 4000);
+          
+          const fetchRes = await fetch(finalUrl, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+            },
+            signal: controller.signal
           });
+          
+          clearTimeout(timeoutId);
 
-          scrapedImages = Array.from(new Set(filtered)).slice(0, 8);
+          if (fetchRes.ok) {
+            const html = await fetchRes.text();
+            
+            if (!scrapedTitle) {
+              const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+              if (titleMatch && titleMatch[1]) {
+                scrapedTitle = titleMatch[1].trim();
+              }
+            }
+
+            if (!scrapedContent) {
+              const metaMatch = html.match(/<meta\s+name=["']description["']\s+content=["']([\s\S]*?)["']/i) ||
+                                html.match(/<meta\s+property=["']og:description["']\s+content=["']([\s\S]*?)["']/i);
+              if (metaMatch && metaMatch[1]) {
+                scrapedContent = metaMatch[1].trim();
+              }
+            }
+
+            // Fetch Shopee structures & cdn images directly from HTML source
+            const cdnRegex = /(https?:\/\/(?:[a-zA-Z0-9-]+\.)*(?:susercontent|shopee)\.[a-z0-9.]+\/file\/[a-zA-Z0-9_\-]+)/gi;
+            const ogImageRegex = /<meta\s+(?:property|name)=["'](?:og:image|twitter:image)["']\s+content=["']([^"']+)["']/gi;
+            
+            const rawImages: string[] = [];
+
+            let mOg;
+            while ((mOg = ogImageRegex.exec(html)) !== null) {
+              if (mOg[1] && mOg[1].startsWith("http")) {
+                rawImages.push(mOg[1]);
+              }
+            }
+
+            let mCdn;
+            while ((mCdn = cdnRegex.exec(html)) !== null) {
+              rawImages.push(mCdn[1]);
+            }
+
+            const filtered = rawImages.filter(img => {
+              const low = img.toLowerCase();
+              return !low.includes("icon") && !low.includes("logo") && !low.includes("pixel") && !low.includes("sprite") && !low.includes("loading") && !low.includes("avatar");
+            });
+
+            scrapedImages = Array.from(new Set(filtered)).slice(0, 8);
+          }
         }
       } catch (err) {
         console.log("Scraping URL fetch skipped or failed under serverless environment.", err);
@@ -115,6 +210,7 @@ export default async function handler(req: any, res: any) {
       LINK DO PRODUTO: ${url || "Não fornecido"}
       TÍTULO CAPTURADO DO SITE: ${scrapedTitle || "Não encontrado"}
       CONTEÚDO CAPTURADO DO SITE: ${scrapedContent || "Não encontrado"}
+      PREÇO ENCONTRADO NO SITE (REAIS): ${scrapedPrice !== null ? `R$ ${scrapedPrice.toFixed(2)}` : "Não detectado"}
       TEXTO MANUAL COLADO PELO USUÁRIO: ${rawText || "Não fornecido"}
     `;
 
@@ -226,15 +322,29 @@ Forneça a saída estritamente em formato JSON válido que respeite o esquema ab
       imagesList = scrapedImages;
       primaryImage = scrapedImages[0];
     } else {
-      const fallbackList = imageMap[kw];
+      // Flexible matching for keywords
+      let fallbackList: string[] | undefined = undefined;
+      if (imageMap[kw]) {
+        fallbackList = imageMap[kw];
+      } else {
+        // Look for any key that is a substring of the generated keyword, or vice-versa
+        for (const key of Object.keys(imageMap)) {
+          if (kw.includes(key) || key.includes(kw)) {
+            fallbackList = imageMap[key];
+            break;
+          }
+        }
+      }
+
       if (fallbackList && fallbackList.length > 0) {
         imagesList = fallbackList;
         primaryImage = fallbackList[0];
       } else {
+        // High quality general product/shopping defaults instead of a watch!
         const fallbacks = [
-          "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80",
-          "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=600&auto=format&fit=crop&q=80",
-          "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&auto=format&fit=crop&q=80"
+          "https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=600&auto=format&fit=crop&q=80", // Golden premium shopping bags
+          "https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=600&auto=format&fit=crop&q=80", // Creative storefront
+          "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=600&auto=format&fit=crop&q=80"  // Elegant packaging close-up
         ];
         imagesList = fallbacks;
         primaryImage = fallbacks[0];
