@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { INITIAL_PRODUCTS, INITIAL_CATEGORIES } from "./data";
 import { Product, AppSettings } from "./types";
 import Header from "./components/Header";
@@ -144,16 +144,16 @@ export default function App() {
   };
 
   // Perform direct purchase redirect (euthanize/track clicks seamlessly)
-  const handleDirectPurchase = (product: Product, event: React.MouseEvent) => {
+  const handleDirectPurchase = (product: Product, event: any) => {
     event.stopPropagation();
     handleTrackClick(product);
     window.open(product.link, "_blank", "noopener,noreferrer");
   };
 
   // Compute Categories from products dynamically to support new categories
-  const categoriesList = [
+  const categoriesList: string[] = [
     "Todos",
-    ...Array.from(new Set(products.map((p) => p.category))).filter(Boolean),
+    ...Array.from(new Set(products.map((p) => p.category))).filter((c): c is string => !!c),
   ];
 
   // Filtering products for UI

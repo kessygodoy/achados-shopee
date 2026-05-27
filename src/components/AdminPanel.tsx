@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Product, AppSettings } from "../types";
 import { 
   Key, Shield, Settings, TrendingUp, BarChart3, Plus, 
@@ -25,7 +25,29 @@ export default function AdminPanel({
   onUpdateSettings,
   onImportProducts,
 }: AdminPanelProps) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    try {
+      // Check localStorage first
+      if (typeof window !== "undefined") {
+        const stored = localStorage.getItem("shopee_admin_auth");
+        if (stored === "true") return true;
+        
+        // Check cookie as requested in prompt
+        const cookies = document.cookie.split(";");
+        for (let i = 0; i < cookies.length; i++) {
+          const parts = cookies[i].split("=");
+          const name = parts[0].trim();
+          const value = parts[1] ? parts[1].trim() : "";
+          if (name === "shopee_admin_auth" && value === "true") {
+            return true;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Storage or cookie check failed", e);
+    }
+    return false;
+  });
   const [passwordInput, setPasswordInput] = useState("");
   const [authError, setAuthError] = useState("");
 
@@ -46,6 +68,56 @@ export default function AdminPanel({
   const [isFeatured, setIsFeatured] = useState(false);
   const [isAvailable, setIsAvailable] = useState(true);
 
+  // AI Auto-Generator States
+  const [aiUrl, setAiUrl] = useState("");
+  const [aiRawText, setAiRawText] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState("");
+  const [generateSuccess, setGenerateSuccess] = useState("");
+
+  const handleGenerateWithAI = async () => {
+    if (!aiUrl.trim() && !aiRawText.trim()) {
+      setGenerateError("Por favor, forneça o link do produto ou cole os detalhes de texto.");
+      return;
+    }
+    setIsGenerating(true);
+    setGenerateError("");
+    setGenerateSuccess("");
+    try {
+      const res = await fetch("/api/generate-product", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: aiUrl.trim(),
+          rawText: aiRawText.trim(),
+          categories: categories.filter(c => c !== "Todos")
+        })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Houve um erro de comunicação com o servidor.");
+      }
+      const data = await res.json();
+      setTitle(data.title || "");
+      setDescription(data.description || "");
+      setPrice(data.price ? data.price.toString() : "");
+      setOriginalPrice(data.originalPrice ? data.originalPrice.toString() : "");
+      if (data.link) setLink(data.link);
+      if (data.image) setImage(data.image);
+      if (data.category) setCategory(data.category);
+      if (data.discountCode) setDiscountCode(data.discountCode);
+      setGenerateSuccess("Anúncio gerado com sucesso por IA usando o Gemini! Revise os detalhes preenchidos abaixo.");
+      // Auto preencha o link original nas inputs correspondentes se estivesse em branco
+      if (!link) {
+        setLink(aiUrl.trim());
+      }
+    } catch (err: any) {
+      setGenerateError(err.message || "Falha ao gerar anúncio automático.");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   // App Settings Inputs
   const [blogName, setBlogName] = useState(settings.blogName);
   const [blogSubtitle, setBlogSubtitle] = useState(settings.blogSubtitle);
@@ -59,6 +131,17 @@ export default function AdminPanel({
     if (passwordInput === "doisseis97" || passwordInput === settings.adminPasswordHash) {
       setIsAuthenticated(true);
       setAuthError("");
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("shopee_admin_auth", "true");
+          // Calculate expiration date (e.g., 365 days)
+          const date = new Date();
+          date.setTime(date.getTime() + (365 * 24 * 60 * 60 * 1000));
+          document.cookie = `shopee_admin_auth=true; expires=${date.toUTCString()}; path=/; SameSite=Lax;`;
+        }
+      } catch (err) {
+        console.warn("Could not write session storage or cookies", err);
+      }
     } else {
       setAuthError("Código de acesso incorreto!");
     }
@@ -67,6 +150,14 @@ export default function AdminPanel({
   const handleLogout = () => {
     setIsAuthenticated(false);
     setPasswordInput("");
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("shopee_admin_auth");
+        document.cookie = "shopee_admin_auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax;";
+      }
+    } catch (err) {
+      console.warn("Could not clear session storage or cookies", err);
+    }
   };
 
   // Open Form to ADD new
@@ -325,6 +416,83 @@ export default function AdminPanel({
                 <Edit className="w-5 h-5 text-orange-500" />
                 {currentId ? "Editar Produto Cadastrado" : "Cadastrar Novo Achado"}
               </h3>
+
+              {/* Gerador Automático IA */}
+              <div className="mb-6 pb-6 border-b border-dashed border-slate-200">
+                <div className="bg-orange-50/50 rounded-2xl border border-orange-100 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">🪄</span>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-700">
+                      Gerador Automático de Anúncios (Gemini AI)
+                    </h4>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mb-4 leading-relaxed font-semibold">
+                    Cole o link original do produto ou cole um texto do produto (especificações técnicas, reviews, título confuso) e o Gemini fará a mágica! Ele completará todo o formulário com preços, título ideal sob medida, categoria correta, foto premium e descrição vendedora.
+                  </p>
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">
+                        Link do Produto Shopee (URL)
+                      </label>
+                      <input
+                        type="url"
+                        placeholder="https://shopee.com.br/produto-exemplo-link..."
+                        value={aiUrl}
+                        onChange={(e) => setAiUrl(e.target.value)}
+                        className="w-full bg-white border border-slate-250 focus:border-orange-500 focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 font-medium"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">
+                        Copiar & Colar Texto do Produto (Opcional - Altamente Recomendado)
+                      </label>
+                      <textarea
+                        rows={2}
+                        placeholder="Ex: Título técnico longo com frete de atacado da shopee, ou especificações técnicas..."
+                        value={aiRawText}
+                        onChange={(e) => setAiRawText(e.target.value)}
+                        className="w-full bg-white border border-slate-250 focus:border-orange-500 focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 font-medium"
+                      />
+                    </div>
+
+                    {generateError && (
+                      <p className="text-xs font-bold text-red-500 bg-red-50 border border-red-100 py-2 px-3 rounded-xl">
+                        ⚠️ Erro: {generateError}
+                      </p>
+                    )}
+
+                    {generateSuccess && (
+                      <p className="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 py-2 px-3 rounded-xl">
+                        ✨ {generateSuccess}
+                      </p>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleGenerateWithAI}
+                      disabled={isGenerating}
+                      className={`w-full font-black text-xs py-2.5 rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                        isGenerating 
+                          ? "bg-orange-300 text-white cursor-not-allowed" 
+                          : "bg-orange-600 hover:bg-orange-700 text-white hover:scale-[1.01]"
+                      }`}
+                    >
+                      {isGenerating ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          <span>O Gemini AI está escrevendo o anúncio irresistível...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>🪄 Gerar Dados do Anúncio com IA</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
 
               <form onSubmit={handleFormSubmit} className="space-y-4">
                 {/* Product Title */}

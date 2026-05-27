@@ -1,10 +1,12 @@
+import React from "react";
 import { Product } from "../types";
 import { Star, ArrowRight, Eye, ShieldCheck } from "lucide-react";
 
 interface ProductCardProps {
   product: Product;
   onClick: () => void;
-  onDirectPurchase: (product: Product, event: React.MouseEvent) => void;
+  onDirectPurchase: (product: Product, event: any) => void;
+  key?: string | number;
 }
 
 export default function ProductCard({ product, onClick, onDirectPurchase }: ProductCardProps) {
